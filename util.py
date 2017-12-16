@@ -1,4 +1,6 @@
 import time
+import gzip
+import io
 import subprocess,re
 
 def str2hex(packet):
@@ -74,7 +76,18 @@ def get_timestamp(strbyte):
     st = time.localtime(int(strtime,16))
     return time.strftime('%Y-%m-%d %H:%M:%S',st)
 
-# sniff_signal = pyqtSignal(int,int)  # 信号类型：int
+charlist = "zxcvbnmasdfghjklqwertyuiopZXCVBNMASDFGHJKLPOIUYTREWQ1234567890`~!@#$%^&*()-_=+[]{}\|\'\";:/?.>,<"
+
+def toAscii(s):
+    r = ''
+    for i in range(len(s) // 2):
+        if chr(int(s[2 * i:2 * i + 2], 16)) in charlist:
+            r = r + chr(int(s[2 * i:2 * i + 2], 16))
+        else:
+            r = r + '.'
+    return r
+
+    # sniff_signal = pyqtSignal(int,int)  # 信号类型：int
     #
     # def __init__(self, sec=1000, parent=None):
     #         super().__init__(parent)

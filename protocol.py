@@ -1,4 +1,4 @@
-from util import byte2bin, str2hex, str2byte, hexstr2unicode, get_mac, get_ipv4, get_ipv6, get_timestamp, hexstr2bytes
+from util import toAscii,byte2bin, str2hex, str2byte, hexstr2unicode, get_mac, get_ipv4, get_ipv6, get_timestamp, hexstr2bytes
 import time
 
 class Ether(object):
@@ -433,7 +433,6 @@ class Packet(object):
         self.icmpv6 = None
         global slice
 
-
         if self.ether.next_proto == 'arp':
             header = self.stream_packet[Ether.header_length*2:]
             self.arp = Arp(header)
@@ -489,6 +488,8 @@ class Packet(object):
                 self.proto = 'icmpv6'
         else:
             return "no such proto"
+
+        self.ascii_data = toAscii(self.stream_packet)
 
     def summary(self):
         self.ether.summary()

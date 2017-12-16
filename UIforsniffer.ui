@@ -33,7 +33,7 @@
      </widget>
     </item>
     <item row="0" column="10">
-     <widget class="QPushButton" name="pushButton_6">
+     <widget class="QPushButton" name="pushButton_find">
       <property name="text">
        <string>Find</string>
       </property>
@@ -87,7 +87,7 @@
     <item row="1" column="8">
      <widget class="QPushButton" name="pushButton_export">
       <property name="text">
-       <string>Export File</string>
+       <string>Export HTTP File</string>
       </property>
      </widget>
     </item>
@@ -195,6 +195,13 @@
        <font>
         <family>Ubuntu Mono</family>
        </font>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="9">
+     <widget class="QPushButton" name="pushButton_export_ftp">
+      <property name="text">
+       <string>Export FTP File</string>
       </property>
      </widget>
     </item>

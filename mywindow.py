@@ -4,10 +4,11 @@ from PyQt5.QtCore import pyqtSignal,QTimer,QThread
 import time
 import socket
 import re
-from util import str2hex
+from util import str2hex,toAscii
 from protocol import Packet
 from UIforsniffer import Ui_MainWindow
 import sys,os
+import gzip
 
 class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
     total_pac_list = []
@@ -17,6 +18,7 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
     filter_button = 0
     interface = None
     condition = None
+    thread = None
 
 
     def __init__(self):
@@ -28,74 +30,120 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
         self.tableWidget.itemClicked.connect(self.show_detail)
         self.tableWidget.itemClicked.connect(self.show_data)
         self.pushButton_select.clicked.connect(self.sniff_init)
+        self.pushButton_export.clicked.connect(self.export_http_file)
+        self.pushButton_export_ftp.clicked.connect(self.export_ftp_file)
 
+    def sniff_init(self):
+        self.interface = self.comboBox.currentText()
+        self.thread = SniffThread(self.interface)
+        self.thread.sniff_signal.connect(self.load)
+        self.thread.start_signal.connect(self.start)
+        self.pushButton_filter.clicked.connect(self.filter)
+        self.pushButton_start.clicked.connect(lambda: self.thread.start())
+        self.pushButton_stop.clicked.connect(lambda: self.thread.terminate())
+        self.pushButton_follow_stream.clicked.connect(self.follow_tcp_stream)
+
+#计算抓包的开始时间
     def start(self,time):
         self.start_time = time
 
+#将包在table表格中实时动态显示出来
     def load(self,packets):
         p_row = len(packets)
         self.tableWidget.setRowCount(p_row)
         for i in range(self.number,p_row):
             self.total_pac_list.append(packets[i])
             self.pac_list.append(packets[i])
-            if packets[i].arp:
-                data = QTableWidgetItem(str(round(packets[i].ether.time-self.start_time,6)))
-                self.tableWidget.setItem(i, 0, data)
-                data = QTableWidgetItem(packets[i].arp.sender_ip_address)
-                self.tableWidget.setItem(i, 2, data)
-                data = QTableWidgetItem(packets[i].arp.target_ip_address)
-                self.tableWidget.setItem(i, 1, data)
-                data = QTableWidgetItem(str(packets[i].length))
-                self.tableWidget.setItem(i, 4, data)
-                data = QTableWidgetItem(packets[i].proto)
-                self.tableWidget.setItem(i, 3, data)
-                data = QTableWidgetItem(packets[i].info())
-                self.tableWidget.setItem(i, 5, data)
-            elif packets[i].ipv4:
-                data = QTableWidgetItem(str(round(packets[i].ether.time-self.start_time,6)))
-                self.tableWidget.setItem(i, 0, data)
-                data = QTableWidgetItem(packets[i].ipv4.source)
-                self.tableWidget.setItem(i, 2, data)
-                data = QTableWidgetItem(packets[i].ipv4.destination)
-                self.tableWidget.setItem(i, 1, data)
-                data = QTableWidgetItem(str(packets[i].length))
-                self.tableWidget.setItem(i, 4, data)
-                data = QTableWidgetItem(packets[i].proto)
-                self.tableWidget.setItem(i, 3, data)
-                data = QTableWidgetItem(packets[i].info())
-                self.tableWidget.setItem(i, 5, data)
-            elif packets[i].ipv6:
-                data = QTableWidgetItem(str(round(packets[i].ether.time - self.start_time, 6)))
-                self.tableWidget.setItem(i, 0, data)
-                data = QTableWidgetItem(packets[i].ipv6.source)
-                self.tableWidget.setItem(i, 2, data)
-                data = QTableWidgetItem(packets[i].ipv6.destination)
-                self.tableWidget.setItem(i, 1, data)
-                data = QTableWidgetItem(str(packets[i].length))
-                self.tableWidget.setItem(i, 4, data)
-                data = QTableWidgetItem(packets[i].proto)
-                self.tableWidget.setItem(i, 3, data)
-                data = QTableWidgetItem(packets[i].info())
-                self.tableWidget.setItem(i, 5, data)
+            self.show_table(packets[i],i)
         self.number = p_row
 
-    def filter_init(self):
+#对所抓的包进行过滤，暂时只支持stop之后过滤
+    def show_table(self,packet,i):
+        if packet.arp:
+            data = QTableWidgetItem(str(round(packet.ether.time - self.start_time, 6)))
+            self.tableWidget.setItem(i, 0, data)
+            data = QTableWidgetItem(packet.arp.sender_ip_address)
+            self.tableWidget.setItem(i, 2, data)
+            data = QTableWidgetItem(packet.arp.target_ip_address)
+            self.tableWidget.setItem(i, 1, data)
+            data = QTableWidgetItem(str(packet.length))
+            self.tableWidget.setItem(i, 4, data)
+            data = QTableWidgetItem(packet.proto)
+            self.tableWidget.setItem(i, 3, data)
+            data = QTableWidgetItem(packet.info())
+            self.tableWidget.setItem(i, 5, data)
+        elif packet.ipv4:
+            data = QTableWidgetItem(str(round(packet.ether.time - self.start_time, 6)))
+            self.tableWidget.setItem(i, 0, data)
+            data = QTableWidgetItem(packet.ipv4.source)
+            self.tableWidget.setItem(i, 2, data)
+            data = QTableWidgetItem(packet.ipv4.destination)
+            self.tableWidget.setItem(i, 1, data)
+            data = QTableWidgetItem(str(packet.length))
+            self.tableWidget.setItem(i, 4, data)
+            data = QTableWidgetItem(packet.proto)
+            self.tableWidget.setItem(i, 3, data)
+            data = QTableWidgetItem(packet.info())
+            self.tableWidget.setItem(i, 5, data)
+        elif packet.ipv6:
+            data = QTableWidgetItem(str(round(packet.ether.time - self.start_time, 6)))
+            self.tableWidget.setItem(i, 0, data)
+            data = QTableWidgetItem(packet.ipv6.source)
+            self.tableWidget.setItem(i, 2, data)
+            data = QTableWidgetItem(packet.ipv6.destination)
+            self.tableWidget.setItem(i, 1, data)
+            data = QTableWidgetItem(str(packet.length))
+            self.tableWidget.setItem(i, 4, data)
+            data = QTableWidgetItem(packet.proto)
+            self.tableWidget.setItem(i, 3, data)
+            data = QTableWidgetItem(packet.info())
+            self.tableWidget.setItem(i, 5, data)
+
+    def filter(self):
         self.condition = self.lineEdit.text()
         if self.condition == '':
-            self.filter_button = 0
-        else:
-            self.filter_button = 1
+            return None
+        i = 0
+        self.tableWidget.setRowCount(i)
+        self.pac_list.clear()
+        exec('''for packet in self.total_pac_list:
+                if %s:
+                    try:
+                        if packet.arp:
+                            self.tableWidget.setRowCount(i+1)
+                            data = QTableWidgetItem(str(round(packets.ether.time-self.start_time,6)))
+                            self.tableWidget.setItem(i, 0, data)
+                            data = QTableWidgetItem(packet.arp.sender_ip_address)
+                            self.tableWidget.setItem(i, 2, data)
+                            data = QTableWidgetItem(packet.arp.target_ip_address)
+                            self.tableWidget.setItem(i, 1, data)
+                            data = QTableWidgetItem(str(packet.length))
+                            self.tableWidget.setItem(i, 4, data)
+                            data = QTableWidgetItem(packet.proto)
+                            self.tableWidget.setItem(i, 3, data)
+                            data = QTableWidgetItem(packet.info())
+                            self.tableWidget.setItem(i, 5, data)
+                        elif packets.ipv4:
+                            self.tableWidget.setRowCount(i+1)
+                            data = QTableWidgetItem(str(round(packet.ether.time-self.start_time,6)))
+                            self.tableWidget.setItem(i, 0, data)
+                            data = QTableWidgetItem(packet.ipv4.source)
+                            self.tableWidget.setItem(i, 2, data)
+                            data = QTableWidgetItem(packet.ipv4.destination)
+                            self.tableWidget.setItem(i, 1, data)
+                            data = QTableWidgetItem(str(packet.length))
+                            self.tableWidget.setItem(i, 4, data)
+                            data = QTableWidgetItem(packet.proto)
+                            self.tableWidget.setItem(i, 3, data)
+                            data = QTableWidgetItem(packet.info())
+                            self.tableWidget.setItem(i, 5, data)
+                        i = i + 1
+                        self.pac_list.append(packet)
+                    except:
+                        print("filter error")
+                 ''' % self.condition)
 
-    def sniff_init(self):
-        self.interface = self.comboBox.currentText()
-        thread = SniffThread(self.interface)
-        thread.sniff_signal.connect(self.load)
-        thread.start_signal.connect(self.start)
-        self.pushButton_filter.clicked.connect(self.filter_init)
-        self.pushButton_start.clicked.connect(lambda: thread.start())
-        self.pushButton_stop.clicked.connect(lambda: thread.terminate())
-        self.pushButton_follow_stream.clicked.connect(self.follow_tcp_stream)
-
+#用树形结构显示所选中包的具体协议列表
     def show_detail(self,Item=None):
         if Item==None:
             return
@@ -269,17 +317,9 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
                 data_icmpv6 = QTreeWidgetItem(icmpv6)
                 data_icmpv6.setText(0,"Data:"+"need to be complished")
 
-    def show_data(self,Item=None):
-        charlist = "zxcvbnmasdfghjklqwertyuiopZXCVBNMASDFGHJKLPOIUYTREWQ1234567890`~!@#$%^&*()-_=+[]{}\|\'\";:/?.>,<"
-        def toAscii(s):
-            r = ''
-            for i in range(len(s)//2):
-                if chr(int(s[2*i:2*i+2],16)) in charlist:
-                    r = r + chr(int(s[2*i:2*i+2],16))
-                else:
-                    r = r + '.'
-            return r
 
+#将原生16进制报文显示出来
+    def show_data(self,Item=None):
         if Item==None:
             return
         packet = self.pac_list[int(Item.row())]
@@ -293,12 +333,12 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
             item = QListWidgetItem(self.listWidget)
             item.setText('{:47}'.format(' '.join(re.findall(r'.{2}',s[-r:])))+'\t'+toAscii(s[-r:]))
 
+#跟踪TCP数据流，暂时只能在stop之后才能使用，动态使用存在问题
     def follow_tcp_stream(self):
         packets = []
         total_data = ''
         if self.pac_list[self.current_row].tcp:
             index = self.pac_list[self.current_row].tcp.stream_index
-            self.tableWidget.clear()
             self.tableWidget.setRowCount(0)
         else:
             return
@@ -307,62 +347,137 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
                 if packet.tcp.stream_index == index:
                     packets.append(packet)
         self.pac_list = packets
-
+        checksums = []
+        packets_no_dup = []
+        for packet in self.pac_list:
+            if packet.tcp.checksum not in checksums:
+                checksums.append(packet.tcp.checksum)
+                packets_no_dup.append(packet)
+        self.pac_list = packets_no_dup
+        self.tableWidget.setRowCount(len(self.pac_list))
+        for i in range(len(self.pac_list)):
+            self.show_table(self.pac_list[i],i)
         print(len(self.pac_list))
+
+#在跟踪TCP数据流之后使用
+    def export_http_file(self):
+        num = 0
         packets_1 = []
         packets_2 = []
-        packets_3 = []
         packets_1.append(self.pac_list[0])
-
         for packet in self.pac_list:
             if packet.tcp.source_port == self.pac_list[0].tcp.source_port:
                 packets_1.append(packet)
             else:
                 packets_2.append(packet)
+        server = packets_2
+        for packet in packets_2:
+            if 'GET' in packet.ascii_data or 'POST' in packet.ascii_data:
+                server = packets_1
 
-        for i in range(len(packets_1)):
-            for j in range(i):
-                if packets_1[i].tcp.sequence_number < packets_1[j].tcp.sequence_number:
-                    packets_1[i],packets_1[j] = packets_1[j],packets_1[i]
+        for j in range(len(server)):
+            for k in range(j):
+                if server[j].tcp.sequence_number < server[k].tcp.sequence_number:
+                    server[j],server[k] = server[k],server[j]
+        for packet in server:
+            print(packet.tcp.sequence_number)
+        i = 0
+        files = []
+        total_data = b''
+        while i < len(server):
+            if 'HTTP/' in server[i].ascii_data:
+                total_data = server[i].tcp.actual_data
+                i += 1
+                while i < len(server) and 'HTTP/' not in server[i].ascii_data and server[i].tcp.actual_data != b'':
+                    total_data = total_data + server[i].tcp.actual_data
+                    i += 1
+                files.append(total_data)
+            else:
+                i += 1
+                print(i)
 
-        for i in range(len(packets_2)):
-            for j in range(i):
-                if packets_2[i].tcp.sequence_number < packets_2[j].tcp.sequence_number:
-                    packets_2[i],packets_2[j] = packets_2[j],packets_2[i]
+        for file in files:
+            index = file.index(b'\x0d\x0a\x0d\x0a') + 4
+            data = file[index:]
+            if b'gzip' in file:
+                try:
+                    data = gzip.decompress(data)
+                except:
+                    print('can\'t decode')
+                    continue
+            if b'text/html' in file:
+                outfile = open("file" + str(num) + ".html", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            elif b'text/css' in file:
+                outfile = open("file" + str(num) + ".css", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            elif b'application/x-javascript' in file:
+                outfile = open("file" + str(num) + ".js", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            elif b'image/jpeg' in file:
+                outfile = open("file" + str(num) + ".jpeg", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            elif b'image/png' in file:
+                outfile = open("file" + str(num) + ".png", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            elif b'image/gif' in file:
+                outfile = open("file" + str(num) + ".gif", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            else:
+                continue
 
-        for i in range(len(packets_1)-1):
-            packets_3.append(packets_1[i])
-            for j in packets_2:
-                if j.tcp.sequence_number >= packets_1[i].tcp.acknowledgement_number and j.tcp.acknowledgement_number < packets_1[i+1].tcp.acknowledgement_number:
-                    packets_3.append(j)
-        print(len(packets_3))
+    def export_ftp_file(self):
+        num = 0
+        packets_1 = []
+        packets_2 = []
+        packets_1.append(self.pac_list[0])
+        for packet in self.pac_list:
+            if packet.tcp.source_port == self.pac_list[0].tcp.source_port:
+                packets_1.append(packet)
+            else:
+                packets_2.append(packet)
+        server = packets_2
 
-        checksums = []
-        packets_no_dup = []
-        for packet in packets_3:
-            if packet.tcp.checksum not in checksums:
-                checksums.append(packet.tcp.checksum)
-                packets_no_dup.append(packet)
-        self.pac_list = packets_no_dup
+        for packet in packets_1:
+            if int(packet.tcp.flags[4]) and int(packet.tcp.flags[7]):
+                server = packets_1
+        for j in range(len(server)):
+            for k in range(j):
+                if server[j].tcp.sequence_number < server[k].tcp.sequence_number:
+                    server[j], server[k] = server[k], server[j]
+        for packet in server:
+            print(packet.tcp.sequence_number)
+        i = 0
+        files = []
+        total_data = b''
+        while i < len(server):
+            if b'%PDF' in server[i].tcp.actual_data:
+                total_data = server[i].tcp.actual_data
+                i += 1
+                while i<len(server) and b'%EOF' not in server[i].tcp.actual_data:
+                    total_data = total_data + server[i].tcp.actual_data
+                    i += 1
+                total_data = total_data + server[i].tcp.actual_data
+                outfile = open("ftp_file" + str(num) + ".pdf", 'wb')
+                num += 1
+                outfile.write(total_data)
+                outfile.close()
+            else:
+                i += 1
 
-        for i in range(len(self.pac_list)):
-            if self.pac_list[i].tcp.segment_data_length != 0:
-                total_data = total_data + bytes.hex(self.pac_list[i].tcp.actual_data) + '\n\n'
-            self.tableWidget.setRowCount(i + 1)
-            data = QTableWidgetItem(str(round(self.pac_list[i].ether.time - self.start_time, 6)))
-            self.tableWidget.setItem(i, 0, data)
-            data = QTableWidgetItem(self.pac_list[i].ipv4.source)
-            self.tableWidget.setItem(i, 2, data)
-            data = QTableWidgetItem(self.pac_list[i].ipv4.destination)
-            self.tableWidget.setItem(i, 1, data)
-            data = QTableWidgetItem(str(self.pac_list[i].length))
-            self.tableWidget.setItem(i, 4, data)
-            data = QTableWidgetItem(self.pac_list[i].proto)
-            self.tableWidget.setItem(i, 3, data)
-            data = QTableWidgetItem(self.pac_list[i].info())
-            self.tableWidget.setItem(i, 5, data)
-        print(total_data)
-
+#显示之外的后端主进程，主要用于抓包和存包，并将得到的包传递给mywindow显示和处理进程
 class SniffThread(QThread):
     packets = []
     numbers = 0
