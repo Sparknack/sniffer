@@ -1,10 +1,10 @@
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.Qt import QWidget,QApplication,QTableWidgetItem,QTreeWidgetItem,QListWidgetItem,QMenu,QAction
-from PyQt5.QtCore import pyqtSignal,QTimer,QThread
+from PyQt5 import QtWidgets
+from PyQt5.Qt import QTableWidgetItem,QTreeWidgetItem,QListWidgetItem,QFileDialog
+from PyQt5.QtCore import pyqtSignal,QThread
 import time
 import socket
 import re
-from util import str2hex,toAscii
+from util import str2hex,toAscii,hexstr2unicode
 from protocol import Packet
 from UIforsniffer import Ui_MainWindow
 import sys,os
@@ -32,6 +32,9 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
         self.pushButton_select.clicked.connect(self.sniff_init)
         self.pushButton_export.clicked.connect(self.export_http_file)
         self.pushButton_export_ftp.clicked.connect(self.export_ftp_file)
+        self.pushButton_save.clicked.connect(self.save_packets)
+        self.pushButton_restart.clicked.connect(self.restart)
+        self.pushButton_find.clicked.connect(self.findpacket)
 
     def sniff_init(self):
         self.interface = self.comboBox.currentText()
@@ -123,7 +126,7 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
                             self.tableWidget.setItem(i, 3, data)
                             data = QTableWidgetItem(packet.info())
                             self.tableWidget.setItem(i, 5, data)
-                        elif packets.ipv4:
+                        elif packet.ipv4:
                             self.tableWidget.setRowCount(i+1)
                             data = QTableWidgetItem(str(round(packet.ether.time-self.start_time,6)))
                             self.tableWidget.setItem(i, 0, data)
@@ -141,6 +144,50 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
                         self.pac_list.append(packet)
                     except:
                         print("filter error")
+                 ''' % self.condition)
+
+    def findpacket(self):
+        self.condition = self.lineEdit.text()
+        if self.condition == '':
+            return None
+        i = 0
+        self.tableWidget.setRowCount(i)
+        self.pac_list.clear()
+        exec('''for packet in self.total_pac_list:
+                if "%s" in packet.ascii_data:
+                    try:
+                        if packet.arp:
+                            self.tableWidget.setRowCount(i+1)
+                            data = QTableWidgetItem(str(round(packets.ether.time-self.start_time,6)))
+                            self.tableWidget.setItem(i, 0, data)
+                            data = QTableWidgetItem(packet.arp.sender_ip_address)
+                            self.tableWidget.setItem(i, 2, data)
+                            data = QTableWidgetItem(packet.arp.target_ip_address)
+                            self.tableWidget.setItem(i, 1, data)
+                            data = QTableWidgetItem(str(packet.length))
+                            self.tableWidget.setItem(i, 4, data)
+                            data = QTableWidgetItem(packet.proto)
+                            self.tableWidget.setItem(i, 3, data)
+                            data = QTableWidgetItem(packet.info())
+                            self.tableWidget.setItem(i, 5, data)
+                        elif packet.ipv4:
+                            self.tableWidget.setRowCount(i+1)
+                            data = QTableWidgetItem(str(round(packet.ether.time-self.start_time,6)))
+                            self.tableWidget.setItem(i, 0, data)
+                            data = QTableWidgetItem(packet.ipv4.source)
+                            self.tableWidget.setItem(i, 2, data)
+                            data = QTableWidgetItem(packet.ipv4.destination)
+                            self.tableWidget.setItem(i, 1, data)
+                            data = QTableWidgetItem(str(packet.length))
+                            self.tableWidget.setItem(i, 4, data)
+                            data = QTableWidgetItem(packet.proto)
+                            self.tableWidget.setItem(i, 3, data)
+                            data = QTableWidgetItem(packet.info())
+                            self.tableWidget.setItem(i, 5, data)
+                        i = i + 1
+                        self.pac_list.append(packet)
+                    except:
+                        print("find error")
                  ''' % self.condition)
 
 #用树形结构显示所选中包的具体协议列表
@@ -230,12 +277,11 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
                 checksum_tcp.setText(0, "Checksum:" + packet.tcp.checksum)
                 ugrent_pointer = QTreeWidgetItem(tcp)
                 ugrent_pointer.setText(0, "Urgent Pointer:" + packet.tcp.urgent_pointer)
-                options = QTreeWidgetItem(tcp)
-                options.setText(0, "Options:" + packet.tcp.options)
+                for kind in packet.tcp.kind:
+                    options = QTreeWidgetItem(tcp)
+                    options.setText(0, "Options:" + kind)
                 sdl = QTreeWidgetItem(tcp)
                 sdl.setText(0, "Segment Data Length:" + str(packet.tcp.segment_data_length))
-                unfinish = QTreeWidgetItem(tcp)
-                unfinish.setText(0, "Need To be complish")
                 self.treeWidget.addTopLevelItem(tcp)
             elif packet.icmp:
                 icmp = QTreeWidgetItem(self.treeWidget)
@@ -314,8 +360,24 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
             if packet.icmpv6:
                 icmpv6 = QTreeWidgetItem(self.treeWidget)
                 icmpv6.setText(0, 'ICMPv6')
-                data_icmpv6 = QTreeWidgetItem(icmpv6)
-                data_icmpv6.setText(0,"Data:"+"need to be complished")
+                type_icmpv6 = QTreeWidgetItem(icmpv6)
+                type_icmpv6.setText("Type:"+packet.icmpv6.info()+'('+str(packet.icmpv6.type)+')')
+                code_icmpv6 = QTreeWidgetItem(icmpv6)
+                code_icmpv6.setText("Code:"+str(packet.icmpv6.code))
+                checksum_icmpv6 = QTreeWidgetItem(icmpv6)
+                checksum_icmpv6.setText("Checksum:"+packet.icmpv6.checksum)
+                chl_icmpv6 = QTreeWidgetItem(icmpv6)
+                chl_icmpv6.setText("Cur Hop Limit:"+str(packet.icmpv6.cur_hop_limit))
+                flags_icmpv6 = QTreeWidgetItem(icmpv6)
+                flags_icmpv6.setText("Flags:"+packet.icmpv6.flags)
+                rl_icmpv6 = QTreeWidgetItem(icmpv6)
+                rl_icmpv6.setText("Router LifeTime:"+str(packet.icmpv6.router_lifetime))
+                rt_icmpv6 = QTreeWidgetItem(icmpv6)
+                rt_icmpv6.setText("Reachable Time:"+str(packet.icmpv6.reachable_time))
+                rtt_icmpv6 = QTreeWidgetItem(icmpv6)
+                rtt_icmpv6.setText("Retrans Time:"+str(packet.icmpv6.retrans_time))
+                options_icmpv6 = QTreeWidgetItem(icmpv6)
+                options_icmpv6.setText("Options:"+packet.icmpv6.options)
 
 
 #将原生16进制报文显示出来
@@ -401,8 +463,14 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
             data = file[index:]
             if b'gzip' in file:
                 try:
+                    index = file.index(b'\x1f\x8b')
+                    data = file[index:]
+                    if b'\x0d\x0a' in data:
+                        index_final = data.index(b'\x0d\x0a')
+                        data = data[:index_final]
                     data = gzip.decompress(data)
                 except:
+                    print(data)
                     print('can\'t decode')
                     continue
             if b'text/html' in file:
@@ -417,6 +485,11 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
                 outfile.close()
             elif b'application/x-javascript' in file:
                 outfile = open("file" + str(num) + ".js", 'wb')
+                num += 1
+                outfile.write(data)
+                outfile.close()
+            elif b'application/json' in file:
+                outfile = open("file" + str(num) + ".json", 'wb')
                 num += 1
                 outfile.write(data)
                 outfile.close()
@@ -449,35 +522,55 @@ class mywindow(QtWidgets.QMainWindow,Ui_MainWindow):
             else:
                 packets_2.append(packet)
         server = packets_2
+        client = packets_1
 
         for packet in packets_1:
             if int(packet.tcp.flags[4]) and int(packet.tcp.flags[7]):
                 server = packets_1
+                client = packets_2
         for j in range(len(server)):
             for k in range(j):
                 if server[j].tcp.sequence_number < server[k].tcp.sequence_number:
                     server[j], server[k] = server[k], server[j]
         for packet in server:
             print(packet.tcp.sequence_number)
-        i = 0
-        files = []
         total_data = b''
+        file_path = b''
+        filename = ''
+        i = 0
+        for packet in client:
+            if b'RETR' in packet.tcp.actual_data:
+                file_path = packet.tcp.actual_data[5:-2]
+                filename = hexstr2unicode(bytes.hex(file_path)).split('/')[-1]
+        while file_path not in server[i]:
+            i = i + 1
+        i = i + 1
         while i < len(server):
-            if b'%PDF' in server[i].tcp.actual_data:
-                total_data = server[i].tcp.actual_data
-                i += 1
-                while i<len(server) and b'%EOF' not in server[i].tcp.actual_data:
-                    total_data = total_data + server[i].tcp.actual_data
-                    i += 1
-                total_data = total_data + server[i].tcp.actual_data
-                outfile = open("ftp_file" + str(num) + ".pdf", 'wb')
-                num += 1
-                outfile.write(total_data)
-                outfile.close()
-            else:
-                i += 1
+            total_data = total_data + server[i].tcp.actual_data
+            i = i + 1
+        outfile = open(filename, 'wb')
+        outfile.write(total_data)
+        outfile.close()
 
-#显示之外的后端主进程，主要用于抓包和存包，并将得到的包传递给mywindow显示和处理进程
+
+    def save_packets(self):
+        file_path,type = QFileDialog.getSaveFileName(self, "save file", "","Text Files (*.txt)")
+        saved_file = open(file_path+".txt", 'a')
+        for packet in self.pac_list:
+            if packet.tcp:
+                saved_file.write(toAscii(bytes.hex(packet.tcp.actual_data)))
+        saved_file.close()
+
+    def restart(self):
+        self.total_pac_list = []
+        self.pac_list = []
+        self.number = 0
+        self.start_time = 0
+        self.thread.clear()
+        self.thread.start()
+
+
+    #显示之外的后端主进程，主要用于抓包和存包，并将得到的包传递给mywindow显示和处理进程
 class SniffThread(QThread):
     packets = []
     numbers = 0
@@ -503,6 +596,10 @@ class SniffThread(QThread):
             if len(self.packets) > self.numbers:
                 self.sniff_signal.emit(self.packets)
             self.numbers = len(self.packets)
+
+    def clear(self):
+        self.packets = []
+        self.numbers = 0
 
 
 if __name__ == '__main__':
